@@ -15,16 +15,16 @@ INCLUDE(InstallSettings)
 ##################### Look for required libraries ######################
 
 # Add QT dependencies
-FIND_PACKAGE(Qt5Widgets REQUIRED)
+find_package(Qt5 COMPONENTS Widgets Core REQUIRED)
 
 ######################### Add Primary Targets ##########################
 ADD_SUBDIRECTORY(src)
 
 ########################## Add the Examples ############################
-OPTION (BUILD_EXAMPLES "Build Examples" ON)
-IF(BUILD_EXAMPLES)
-  ADD_SUBDIRECTORY(examples)
-ENDIF()
+#OPTION (BUILD_EXAMPLES "Build Examples" OFF)
+#IF(BUILD_EXAMPLES)
+#  ADD_SUBDIRECTORY(examples)
+#ENDIF()
 
 ######################### Installation Stuff ###########################
 INCLUDE(InstallProjectConfig)

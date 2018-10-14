@@ -1,12 +1,11 @@
 /****************************************************************************
 **
-** Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
+** Copyright (C) 2013 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** This file is part of the Qt Solutions component.
 **
-** This file is part of a Qt Solutions component.
-**
+** $QT_BEGIN_LICENSE:BSD$
 ** You may use this file under the terms of the BSD license as follows:
 **
 ** "Redistribution and use in source and binary forms, with or without
@@ -18,10 +17,10 @@
 **     notice, this list of conditions and the following disclaimer in
 **     the documentation and/or other materials provided with the
 **     distribution.
-**   * Neither the name of Nokia Corporation and its Subsidiary(-ies) nor
-**     the names of its contributors may be used to endorse or promote
-**     products derived from this software without specific prior written
-**     permission.
+**   * Neither the name of Digia Plc and its Subsidiary(-ies) nor the names
+**     of its contributors may be used to endorse or promote products derived
+**     from this software without specific prior written permission.
+**
 **
 ** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 ** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -35,11 +34,13 @@
 ** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 ** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
 **
+** $QT_END_LICENSE$
+**
 ****************************************************************************/
 
 
 #include "qttreepropertybrowser.h"
-#include <QtCore/QSet>
+#include <QSet>
 #include <QIcon>
 #include <QTreeWidget>
 #include <QItemDelegate>
@@ -153,9 +154,13 @@ void QtPropertyEditorView::drawRow(QPainter *painter, const QStyleOptionViewItem
             hasValue = property->hasValue();
     }
     if (!hasValue && m_editorPrivate->markPropertiesWithoutValue()) {
-        const QColor c = option.palette.color(QPalette::Dark);
-        painter->fillRect(option.rect, c);
-        opt.palette.setColor(QPalette::AlternateBase, c);
+
+        const QColor c = index.parent().isValid() ? m_editorPrivate->calculatedBackgroundColor(m_editorPrivate->indexToBrowserItem(index)) :
+                                                    option.palette.color(QPalette::Dark);
+        if (c.isValid()) {
+            painter->fillRect(option.rect, c);
+            opt.palette.setColor(QPalette::AlternateBase, c);
+        }
     } else {
         const QColor c = m_editorPrivate->calculatedBackgroundColor(m_editorPrivate->indexToBrowserItem(index));
         if (c.isValid()) {
@@ -357,8 +362,12 @@ void QtPropertyEditorDelegate::paint(QPainter *painter, const QStyleOptionViewIt
     }
     QColor c;
     if (!hasValue && m_editorPrivate->markPropertiesWithoutValue()) {
-        c = opt.palette.color(QPalette::Dark);
-        opt.palette.setColor(QPalette::Text, opt.palette.color(QPalette::BrightText));
+
+        c = index.parent().isValid() ? m_editorPrivate->calculatedBackgroundColor(m_editorPrivate->indexToBrowserItem(index)) :
+                                       opt.palette.color(QPalette::Dark);
+        if (c.isValid() && (opt.features & QStyleOptionViewItemV2::Alternate))
+            c = c.lighter(112);
+        //opt.palette.setColor(QPalette::Text, opt.palette.color(QPalette::BrightText));
     } else {
         c = m_editorPrivate->calculatedBackgroundColor(m_editorPrivate->indexToBrowserItem(index));
         if (c.isValid() && (opt.features & QStyleOptionViewItemV2::Alternate))
@@ -371,8 +380,9 @@ void QtPropertyEditorDelegate::paint(QPainter *painter, const QStyleOptionViewIt
         QTreeWidgetItem *item = m_editorPrivate->indexToItem(index);
         if (m_editedItem && m_editedItem == item)
             m_disablePainting = true;
-        }
+    }
     QItemDelegate::paint(painter, opt, index);
+    if (option.type)
     m_disablePainting = false;
 
     opt.palette.setCurrentColorGroup(QPalette::Active);
@@ -469,19 +479,20 @@ void QtTreePropertyBrowserPrivate::init(QWidget *parent)
     m_treeWidget->setEditorPrivate(this);
     m_treeWidget->setIconSize(QSize(18, 18));
     layout->addWidget(m_treeWidget);
+    parent->setFocusProxy(m_treeWidget);
 
     m_treeWidget->setColumnCount(2);
     QStringList labels;
-    labels.append(QApplication::translate("QtTreePropertyBrowser", "Property", 0));
-    labels.append(QApplication::translate("QtTreePropertyBrowser", "Value", 0));
+    labels.append(QCoreApplication::translate("QtTreePropertyBrowser", "Property"));
+    labels.append(QCoreApplication::translate("QtTreePropertyBrowser", "Value"));
     m_treeWidget->setHeaderLabels(labels);
     m_treeWidget->setAlternatingRowColors(true);
     m_treeWidget->setEditTriggers(QAbstractItemView::EditKeyPressed);
     m_delegate = new QtPropertyEditorDelegate(parent);
     m_delegate->setEditorPrivate(this);
     m_treeWidget->setItemDelegate(m_delegate);
-    m_treeWidget->header()->setSectionsMovable(false);
-    m_treeWidget->header()->setSectionResizeMode(QHeaderView::Stretch);
+    m_treeWidget->header()->setMovable(false);
+    m_treeWidget->header()->setResizeMode(QHeaderView::Stretch);
 
     m_expandIcon = drawIndicatorIcon(q_ptr->palette(), q_ptr->style());
 
@@ -586,7 +597,7 @@ void QtTreePropertyBrowserPrivate::propertyInserted(QtBrowserItem *index, QtBrow
     m_indexToItem[index] = newItem;
 
     newItem->setFlags(newItem->flags() | Qt::ItemIsEditable);
-    m_treeWidget->setItemExpanded(newItem, true);
+    m_treeWidget->setItemExpanded(newItem, parentItem ? false : true);
 
     updateItem(newItem);
 }
@@ -620,10 +631,10 @@ void QtTreePropertyBrowserPrivate::updateItem(QTreeWidgetItem *item)
     if (property->hasValue()) {
         QString toolTip = property->toolTip();
         if (toolTip.isEmpty())
-            toolTip = property->valueText();
+            toolTip = property->displayText();
         item->setToolTip(1, toolTip);
         item->setIcon(1, property->valueIcon());
-        item->setText(1, property->valueText());
+        property->displayText().isEmpty() ? item->setText(1, property->valueText()) : item->setText(1, property->displayText());
     } else if (markPropertiesWithoutValue() && !m_treeWidget->rootIsDecorated()) {
         expandIcon = m_expandIcon;
     }
@@ -893,7 +904,7 @@ void QtTreePropertyBrowser::setResizeMode(QtTreePropertyBrowser::ResizeMode mode
         case QtTreePropertyBrowser::Stretch:
         default:                                      m = QHeaderView::Stretch;          break;
     }
-    d_ptr->m_treeWidget->header()->setSectionResizeMode(m);
+    d_ptr->m_treeWidget->header()->setResizeMode(m);
 }
 
 /*!

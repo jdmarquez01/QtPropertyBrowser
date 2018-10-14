@@ -39,42 +39,45 @@
 ****************************************************************************/
 
 
-#ifndef QTGROUPBOXPROPERTYBROWSER_H
-#define QTGROUPBOXPROPERTYBROWSER_H
+#ifndef QTMETAOBJECTPROPERTYBROWSER_H
+#define QTMETAOBJECTPROPERTYBROWSER_H
 
-#include "qtpropertybrowser.h"
+#include "qttreepropertybrowser.h"
 
 #if QT_VERSION >= 0x040400
 QT_BEGIN_NAMESPACE
 #endif
 
-class QtGroupBoxPropertyBrowserPrivate;
+class QTreeWidgetItem;
+class QtTreePropertyBrowserPrivate;
+class QtMetaObjectPropertyBrowserPrivate;
 
-class QT_QTPROPERTYBROWSER_EXPORT QtGroupBoxPropertyBrowser : public QtAbstractPropertyBrowser
+class QT_QTPROPERTYBROWSER_EXPORT QtMetaObjectPropertyBrowser : public QtTreePropertyBrowser
 {
-    Q_OBJECT
-public:
+	Q_OBJECT
+        Q_DECLARE_PRIVATE(QtMetaObjectPropertyBrowser)
 
-    QtGroupBoxPropertyBrowser(QWidget *parent = 0);
-    ~QtGroupBoxPropertyBrowser();
+	public:
 
-protected:
-    virtual void itemInserted(QtBrowserItem *item, QtBrowserItem *afterItem);
-    virtual void itemRemoved(QtBrowserItem *item);
-    virtual void itemChanged(QtBrowserItem *item);
+		QtMetaObjectPropertyBrowser(QWidget *parent = 0);
+		~QtMetaObjectPropertyBrowser();
+	
+	public Q_SLOTS:
+		void SetObject(const QObject * item);
 
-private:
+        protected:
+            QScopedPointer<QtMetaObjectPropertyBrowserPrivate> d_ptr;
 
-    QtGroupBoxPropertyBrowserPrivate *d_ptr;
-    Q_DECLARE_PRIVATE(QtGroupBoxPropertyBrowser)
-    Q_DISABLE_COPY(QtGroupBoxPropertyBrowser)
-    Q_PRIVATE_SLOT(d_func(), void slotUpdate())
-    Q_PRIVATE_SLOT(d_func(), void slotEditorDestroyed())
+      private:
 
+
+        Q_PRIVATE_SLOT(d_func(), void slotValueChanged(QtProperty*, const QVariant &val))
 };
+
 
 #if QT_VERSION >= 0x040400
 QT_END_NAMESPACE
 #endif
+
 
 #endif

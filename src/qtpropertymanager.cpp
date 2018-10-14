@@ -1,12 +1,11 @@
 /****************************************************************************
 **
-** Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
-** All rights reserved.
+** Copyright (C) 2013 Digia Plc and/or its subsidiary(-ies).
+** Contact: http://www.qt-project.org/legal
 **
-** Contact: Nokia Corporation (qt-info@nokia.com)
+** This file is part of the Qt Solutions component.
 **
-** This file is part of a Qt Solutions component.
-**
+** $QT_BEGIN_LICENSE:BSD$
 ** You may use this file under the terms of the BSD license as follows:
 **
 ** "Redistribution and use in source and binary forms, with or without
@@ -18,10 +17,10 @@
 **     notice, this list of conditions and the following disclaimer in
 **     the documentation and/or other materials provided with the
 **     distribution.
-**   * Neither the name of Nokia Corporation and its Subsidiary(-ies) nor
-**     the names of its contributors may be used to endorse or promote
-**     products derived from this software without specific prior written
-**     permission.
+**   * Neither the name of Digia Plc and its Subsidiary(-ies) nor the names
+**     of its contributors may be used to endorse or promote products derived
+**     from this software without specific prior written permission.
+**
 **
 ** THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 ** "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
@@ -35,28 +34,34 @@
 ** (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 ** OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
 **
+** $QT_END_LICENSE$
+**
 ****************************************************************************/
 
 
 #include "qtpropertymanager.h"
 #include "qtpropertybrowserutils_p.h"
-#include <QtCore/QDateTime>
-#include <QtCore/QLocale>
-#include <QtCore/QMap>
-#include <QtCore/QTimer>
-#include <QtCore/QMetaEnum>
+#include <QDateTime>
+#include <QLocale>
+#include <QMap>
+#include <QTimer>
 #include <QIcon>
+#include <QMetaEnum>
 #include <QFontDatabase>
 #include <QStyleOption>
 #include <QStyle>
+#include <QApplication>
 #include <QPainter>
 #include <QLabel>
 #include <QCheckBox>
-#include <QApplication>
+#include <QLineEdit>
+#include <QVector2D>
+#include <QVector3D>
+
 
 #include <limits.h>
 #include <float.h>
-
+#include <qbitarray.h>
 #if defined(Q_CC_MSVC)
 #    pragma warning(disable: 4786) /* MS VS 6: truncating debug info after 255 characters */
 #endif
@@ -623,11 +628,13 @@ public:
 
     struct Data
     {
-        Data() : val(0), minVal(-INT_MAX), maxVal(INT_MAX), singleStep(1) {}
+        Data() : val(0), minVal(-INT_MAX), maxVal(INT_MAX), singleStep(1), readOnly(false), hexadecimal(false) {}
         int val;
         int minVal;
         int maxVal;
         int singleStep;
+        bool readOnly;
+        bool hexadecimal;
         int minimumValue() const { return minVal; }
         int maximumValue() const { return maxVal; }
         void setMinimumValue(int newMinVal) { setSimpleMinimumData(this, newMinVal); }
@@ -755,6 +762,23 @@ int QtIntPropertyManager::singleStep(const QtProperty *property) const
 }
 
 /*!
+    Returns read-only status of the property.
+
+    When property is read-only it's value can be selected and copied from editor but not modified.
+
+    \sa QtIntPropertyManager::setReadOnly
+*/
+bool QtIntPropertyManager::isReadOnly(const QtProperty *property) const
+{
+  return getData<bool>(d_ptr->m_values, &QtIntPropertyManagerPrivate::Data::readOnly, property, false);
+}
+
+bool QtIntPropertyManager::isHexadecimal(const QtProperty *property) const
+{
+  return getData<bool>(d_ptr->m_values, &QtIntPropertyManagerPrivate::Data::hexadecimal, property, false);
+}
+
+/*!
     \reimp
 */
 QString QtIntPropertyManager::valueText(const QtProperty *property) const
@@ -762,7 +786,13 @@ QString QtIntPropertyManager::valueText(const QtProperty *property) const
     const QtIntPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
     if (it == d_ptr->m_values.constEnd())
         return QString();
-    return QString::number(it.value().val);
+
+
+    QtIntPropertyManagerPrivate::Data data = it.value();
+    if (data.hexadecimal)
+      return  QString("0x%1").arg((uint)it.value().val,0, 16, QChar('0'));
+    else
+      return QString::number(it.value().val,10);
 }
 
 /*!
@@ -874,6 +904,47 @@ void QtIntPropertyManager::setSingleStep(QtProperty *property, int step)
 }
 
 /*!
+    Sets read-only status of the property.
+
+    \sa QtIntPropertyManager::setReadOnly
+*/
+void QtIntPropertyManager::setReadOnly(QtProperty *property, bool readOnly)
+{
+    const QtIntPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    QtIntPropertyManagerPrivate::Data data = it.value();
+
+    if (data.readOnly == readOnly)
+        return;
+
+    data.readOnly = readOnly;
+    it.value() = data;
+
+    emit propertyChanged(property);
+    emit readOnlyChanged(property, data.readOnly);
+}
+
+void QtIntPropertyManager::setHexadecimal(QtProperty *property, bool hexadecimal)
+{
+  const QtIntPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+  if (it == d_ptr->m_values.end())
+      return;
+
+  QtIntPropertyManagerPrivate::Data data = it.value();
+
+  if (data.hexadecimal == hexadecimal)
+      return;
+
+  data.hexadecimal = hexadecimal;
+  it.value() = data;
+
+  emit propertyChanged(property);
+  //emit hexadecimalChanged(property, data.hexadecimal);
+}
+
+/*!
     \reimp
 */
 void QtIntPropertyManager::initializeProperty(QtProperty *property)
@@ -899,12 +970,13 @@ public:
 
     struct Data
     {
-        Data() : val(0), minVal(-INT_MAX), maxVal(INT_MAX), singleStep(1), decimals(2) {}
+        Data() : val(0), minVal(-INT_MAX), maxVal(INT_MAX), singleStep(1), decimals(13), readOnly(false) {}
         double val;
         double minVal;
         double maxVal;
         double singleStep;
         int decimals;
+        bool readOnly;
         double minimumValue() const { return minVal; }
         double maximumValue() const { return maxVal; }
         void setMinimumValue(double newMinVal) { setSimpleMinimumData(this, newMinVal); }
@@ -1053,6 +1125,18 @@ int QtDoublePropertyManager::decimals(const QtProperty *property) const
 }
 
 /*!
+    Returns read-only status of the property.
+
+    When property is read-only it's value can be selected and copied from editor but not modified.
+
+    \sa QtDoublePropertyManager::setReadOnly
+*/
+bool QtDoublePropertyManager::isReadOnly(const QtProperty *property) const
+{
+    return getData<bool>(d_ptr->m_values, &QtDoublePropertyManagerPrivate::Data::readOnly, property, false);
+}
+
+/*!
     \reimp
 */
 QString QtDoublePropertyManager::valueText(const QtProperty *property) const
@@ -1060,7 +1144,7 @@ QString QtDoublePropertyManager::valueText(const QtProperty *property) const
     const QtDoublePropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
     if (it == d_ptr->m_values.constEnd())
         return QString();
-    return QString::number(it.value().val, 'f', it.value().decimals);
+    return QString("%1").arg(it.value().val);//QLocale::system().toString(it.value().val, 'f', it.value().decimals);
 }
 
 /*!
@@ -1109,6 +1193,29 @@ void QtDoublePropertyManager::setSingleStep(QtProperty *property, double step)
     it.value() = data;
 
     emit singleStepChanged(property, data.singleStep);
+}
+
+/*!
+    Sets read-only status of the property.
+
+    \sa QtDoublePropertyManager::setReadOnly
+*/
+void QtDoublePropertyManager::setReadOnly(QtProperty *property, bool readOnly)
+{
+    const QtDoublePropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    QtDoublePropertyManagerPrivate::Data data = it.value();
+
+    if (data.readOnly == readOnly)
+        return;
+
+    data.readOnly = readOnly;
+    it.value() = data;
+
+    emit propertyChanged(property);
+    emit readOnlyChanged(property, data.readOnly);
 }
 
 /*!
@@ -1229,11 +1336,14 @@ public:
 
     struct Data
     {
-        Data() : regExp(QString(QLatin1Char('*')),  Qt::CaseSensitive, QRegExp::Wildcard)
+        Data() : regExp(QString(QLatin1Char('*')),  Qt::CaseSensitive, QRegExp::Wildcard),
+            echoMode(QLineEdit::Normal), readOnly(false)
         {
         }
         QString val;
         QRegExp regExp;
+        int echoMode;
+        bool readOnly;
     };
 
     typedef QMap<const QtProperty *, Data> PropertyValueMap;
@@ -1328,12 +1438,48 @@ QRegExp QtStringPropertyManager::regExp(const QtProperty *property) const
 /*!
     \reimp
 */
+EchoMode QtStringPropertyManager::echoMode(const QtProperty *property) const
+{
+    return (EchoMode)getData<int>(d_ptr->m_values, &QtStringPropertyManagerPrivate::Data::echoMode, property, 0);
+}
+
+/*!
+    Returns read-only status of the property.
+
+    When property is read-only it's value can be selected and copied from editor but not modified.
+
+    \sa QtStringPropertyManager::setReadOnly
+*/
+bool QtStringPropertyManager::isReadOnly(const QtProperty *property) const
+{
+    return getData<bool>(d_ptr->m_values, &QtStringPropertyManagerPrivate::Data::readOnly, property, false);
+}
+
+/*!
+    \reimp
+*/
 QString QtStringPropertyManager::valueText(const QtProperty *property) const
 {
     const QtStringPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
     if (it == d_ptr->m_values.constEnd())
         return QString();
+
     return it.value().val;
+}
+
+/*!
+    \reimp
+*/
+QString QtStringPropertyManager::displayText(const QtProperty *property) const
+{
+    const QtStringPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
+    if (it == d_ptr->m_values.constEnd())
+        return QString();
+
+    QLineEdit edit;
+    edit.setEchoMode((EchoMode)it.value().echoMode);
+    edit.setText(it.value().val);
+    return edit.displayText();
 }
 
 /*!
@@ -1391,6 +1537,48 @@ void QtStringPropertyManager::setRegExp(QtProperty *property, const QRegExp &reg
     emit regExpChanged(property, data.regExp);
 }
 
+
+void QtStringPropertyManager::setEchoMode(QtProperty *property, EchoMode echoMode)
+{
+    const QtStringPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    QtStringPropertyManagerPrivate::Data data = it.value();
+
+    if (data.echoMode == echoMode)
+        return;
+
+    data.echoMode = echoMode;
+    it.value() = data;
+
+    emit propertyChanged(property);
+    emit echoModeChanged(property, data.echoMode);
+}
+
+/*!
+    Sets read-only status of the property.
+
+    \sa QtStringPropertyManager::setReadOnly
+*/
+void QtStringPropertyManager::setReadOnly(QtProperty *property, bool readOnly)
+{
+    const QtStringPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    QtStringPropertyManagerPrivate::Data data = it.value();
+
+    if (data.readOnly == readOnly)
+        return;
+
+    data.readOnly = readOnly;
+    it.value() = data;
+
+    emit propertyChanged(property);
+    emit echoModeChanged(property, data.echoMode);
+}
+
 /*!
     \reimp
 */
@@ -1408,15 +1596,62 @@ void QtStringPropertyManager::uninitializeProperty(QtProperty *property)
 }
 
 // QtBoolPropertyManager
+//     Return an icon containing a check box indicator
+static QIcon drawCheckBox(bool value)
+{
+    QStyleOptionButton opt;
+    opt.state |= value ? QStyle::State_On : QStyle::State_Off;
+    opt.state |= QStyle::State_Enabled;
+    const QStyle *style = QApplication::style();
+    // Figure out size of an indicator and make sure it is not scaled down in a list view item
+    // by making the pixmap as big as a list view icon and centering the indicator in it.
+    // (if it is smaller, it can't be helped)
+    const int indicatorWidth = style->pixelMetric(QStyle::PM_IndicatorWidth, &opt);
+    const int indicatorHeight = style->pixelMetric(QStyle::PM_IndicatorHeight, &opt);
+    const int listViewIconSize = indicatorWidth;
+    const int pixmapWidth = indicatorWidth;
+    const int pixmapHeight = qMax(indicatorHeight, listViewIconSize);
+
+    opt.rect = QRect(0, 0, indicatorWidth, indicatorHeight);
+    QPixmap pixmap = QPixmap(pixmapWidth, pixmapHeight);
+    pixmap.fill(Qt::transparent);
+    {
+        // Center?
+        const int xoff = (pixmapWidth  > indicatorWidth)  ? (pixmapWidth  - indicatorWidth)  / 2 : 0;
+        const int yoff = (pixmapHeight > indicatorHeight) ? (pixmapHeight - indicatorHeight) / 2 : 0;
+        QPainter painter(&pixmap);
+        painter.translate(xoff, yoff);
+        style->drawPrimitive(QStyle::PE_IndicatorCheckBox, &opt, &painter);
+    }
+    return QIcon(pixmap);
+}
 
 class QtBoolPropertyManagerPrivate
 {
     QtBoolPropertyManager *q_ptr;
     Q_DECLARE_PUBLIC(QtBoolPropertyManager)
 public:
+    QtBoolPropertyManagerPrivate();
 
-    QMap<const QtProperty *, bool> m_values;
+    struct Data
+    {
+        Data() : val(false), textVisible(true) {}
+        bool val;
+        bool textVisible;
+    };
+
+    typedef QMap<const QtProperty *, Data> PropertyValueMap;
+    PropertyValueMap m_values;
+
+    const QIcon m_checkedIcon;
+    const QIcon m_uncheckedIcon;
 };
+
+QtBoolPropertyManagerPrivate::QtBoolPropertyManagerPrivate() :
+    m_checkedIcon(drawCheckBox(true)),
+    m_uncheckedIcon(drawCheckBox(false))
+{
+}
 
 /*!
     \class QtBoolPropertyManager
@@ -1470,7 +1705,12 @@ QtBoolPropertyManager::~QtBoolPropertyManager()
 */
 bool QtBoolPropertyManager::value(const QtProperty *property) const
 {
-    return d_ptr->m_values.value(property, false);
+    return getValue<bool>(d_ptr->m_values, property, false);
+}
+
+bool QtBoolPropertyManager::textVisible(const QtProperty *property) const
+{
+    return getData<bool>(d_ptr->m_values, &QtBoolPropertyManagerPrivate::Data::textVisible, property, false);
 }
 
 /*!
@@ -1478,44 +1718,17 @@ bool QtBoolPropertyManager::value(const QtProperty *property) const
 */
 QString QtBoolPropertyManager::valueText(const QtProperty *property) const
 {
-    const QMap<const QtProperty *, bool>::const_iterator it = d_ptr->m_values.constFind(property);
+    const QtBoolPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
     if (it == d_ptr->m_values.constEnd())
+        return QString();
+
+    const QtBoolPropertyManagerPrivate::Data &data = it.value();
+    if (!data.textVisible)
         return QString();
 
     static const QString trueText = tr("True");
     static const QString falseText = tr("False");
-    return it.value() ? trueText : falseText;
-}
-
-// Return an icon containing a check box indicator
-static QIcon drawCheckBox(bool value)
-{
-    QStyleOptionButton opt;
-    opt.state |= value ? QStyle::State_On : QStyle::State_Off;
-    opt.state |= QStyle::State_Enabled;
-    const QStyle *style = QApplication::style();
-    // Figure out size of an indicator and make sure it is not scaled down in a list view item
-    // by making the pixmap as big as a list view icon and centering the indicator in it.
-    // (if it is smaller, it can't be helped)
-    const int indicatorWidth = style->pixelMetric(QStyle::PM_IndicatorWidth, &opt);
-    const int indicatorHeight = style->pixelMetric(QStyle::PM_IndicatorHeight, &opt);
-    const int listViewIconSize = indicatorWidth;
-    const int pixmapWidth = indicatorWidth;
-    const int pixmapHeight = qMax(indicatorHeight, listViewIconSize);
-
-    opt.rect = QRect(0, 0, indicatorWidth, indicatorHeight);
-    QPixmap pixmap = QPixmap(pixmapWidth, pixmapHeight);
-    pixmap.fill(Qt::transparent);
-    {
-        // Center?
-        const int xoff = (pixmapWidth  > indicatorWidth)  ? (pixmapWidth  - indicatorWidth)  / 2 : 0;
-        const int yoff = (pixmapHeight > indicatorHeight) ? (pixmapHeight - indicatorHeight) / 2 : 0;
-        QPainter painter(&pixmap);
-        painter.translate(xoff, yoff);
-        QCheckBox cb;
-        style->drawPrimitive(QStyle::PE_IndicatorCheckBox, &opt, &painter, &cb);
-    }
-    return QIcon(pixmap);
+    return data.val ? trueText : falseText;
 }
 
 /*!
@@ -1523,13 +1736,11 @@ static QIcon drawCheckBox(bool value)
 */
 QIcon QtBoolPropertyManager::valueIcon(const QtProperty *property) const
 {
-    const QMap<const QtProperty *, bool>::const_iterator it = d_ptr->m_values.constFind(property);
+    const QtBoolPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
     if (it == d_ptr->m_values.constEnd())
         return QIcon();
 
-    static const QIcon checkedIcon = drawCheckBox(true);
-    static const QIcon uncheckedIcon = drawCheckBox(false);
-    return it.value() ? checkedIcon : uncheckedIcon;
+    return it.value().val ? d_ptr->m_checkedIcon : d_ptr->m_uncheckedIcon;
 }
 
 /*!
@@ -1541,10 +1752,38 @@ QIcon QtBoolPropertyManager::valueIcon(const QtProperty *property) const
 */
 void QtBoolPropertyManager::setValue(QtProperty *property, bool val)
 {
-    setSimpleValue<bool, bool, QtBoolPropertyManager>(d_ptr->m_values, this,
-                &QtBoolPropertyManager::propertyChanged,
-                &QtBoolPropertyManager::valueChanged,
-                property, val);
+    const QtBoolPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    QtBoolPropertyManagerPrivate::Data data = it.value();
+
+    if (data.val == val)
+        return;
+
+    data.val = val;
+    it.value() = data;
+
+    emit propertyChanged(property);
+    emit valueChanged(property, data.val);
+}
+
+void QtBoolPropertyManager::setTextVisible(QtProperty *property, bool textVisible)
+{
+    const QtBoolPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    QtBoolPropertyManagerPrivate::Data data = it.value();
+
+    if (data.textVisible == textVisible)
+        return;
+
+    data.textVisible = textVisible;
+    it.value() = data;
+
+    emit propertyChanged(property);
+    emit textVisibleChanged(property, data.textVisible);
 }
 
 /*!
@@ -1552,7 +1791,7 @@ void QtBoolPropertyManager::setValue(QtProperty *property, bool val)
 */
 void QtBoolPropertyManager::initializeProperty(QtProperty *property)
 {
-    d_ptr->m_values[property] = false;
+    d_ptr->m_values[property] = QtBoolPropertyManagerPrivate::Data();
 }
 
 /*!
@@ -3268,7 +3507,7 @@ void QtSizePropertyManager::setMaximum(QtProperty *property, const QSize &maxVal
     When setting a new range, the current value is adjusted if
     necessary (ensuring that the value remains within the range).
 
-    \sa  setMinimum(), setMaximum(), rangeChanged()
+    \sa setMinimum(), setMaximum(), rangeChanged()
 */
 void QtSizePropertyManager::setRange(QtProperty *property, const QSize &minVal, const QSize &maxVal)
 {
@@ -3666,7 +3905,7 @@ void QtSizeFPropertyManager::setMaximum(QtProperty *property, const QSizeF &maxV
     When setting a new range, the current value is adjusted if
     necessary (ensuring that the value remains within the range).
 
-    \sa  setMinimum(), setMaximum(), rangeChanged()
+    \sa setMinimum(), setMaximum(), rangeChanged()
 */
 void QtSizeFPropertyManager::setRange(QtProperty *property, const QSizeF &minVal, const QSizeF &maxVal)
 {
@@ -4614,8 +4853,10 @@ public:
     struct Data
     {
         Data() : val(-1) {}
+
         int val;
         QStringList enumNames;
+        QMap<int, int> enumValues;
         QMap<int, QIcon> enumIcons;
     };
 
@@ -4719,6 +4960,10 @@ QStringList QtEnumPropertyManager::enumNames(const QtProperty *property) const
     return getData<QStringList>(d_ptr->m_values, &QtEnumPropertyManagerPrivate::Data::enumNames, property, QStringList());
 }
 
+QMap<int,int> QtEnumPropertyManager::enumValues(const QtProperty *property) const
+{
+    return getData<QMap<int,int> >(d_ptr->m_values, &QtEnumPropertyManagerPrivate::Data::enumValues, property, QMap<int,int>());
+}
 /*!
     Returns the given \a property's map of enum values to their icons.
 
@@ -4741,8 +4986,19 @@ QString QtEnumPropertyManager::valueText(const QtProperty *property) const
     const QtEnumPropertyManagerPrivate::Data &data = it.value();
 
     const int v = data.val;
-    if (v >= 0 && v < data.enumNames.count())
-        return data.enumNames.at(v);
+    if (data.enumValues.count() == 0)
+    {
+        if (v >= 0 && v < data.enumNames.count())
+            return data.enumNames.at(v);
+        else
+            return QString();
+    }
+
+    else
+    {
+        if (data.enumValues.contains(v))
+            return data.enumNames.at(data.enumValues[v]);
+    }
     return QString();
 }
 
@@ -4779,17 +5035,28 @@ void QtEnumPropertyManager::setValue(QtProperty *property, int val)
 
     QtEnumPropertyManagerPrivate::Data data = it.value();
 
-    if (val >= data.enumNames.count())
-        return;
-
-    if (val < 0 && data.enumNames.count() > 0)
-        return;
-
-    if (val < 0)
-        val = -1;
-
     if (data.val == val)
         return;
+
+    if (data.enumValues.count() == 0)
+    {
+
+        if (val >= data.enumNames.count())
+            return;
+
+        if (val < 0 && data.enumNames.count() > 0)
+            return;
+
+        if (val < 0)
+            val = -1;
+    }
+    else
+    {
+        if (!(data.enumValues.contains(val)))
+            return;
+;
+    }
+
 
     data.val = val;
 
@@ -4855,6 +5122,22 @@ void QtEnumPropertyManager::setEnumIcons(QtProperty *property, const QMap<int, Q
 
     emit propertyChanged(property);
 }
+void QtEnumPropertyManager::setEnumValues(QtProperty *property, const QMap<int, int> &values)
+{
+
+    const QtEnumPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    it.value().enumValues = values;
+
+  //  emit enumIconsChanged(property, it.value().enumIcons);
+
+   // emit propertyChanged(property);
+
+}
+
+
 
 /*!
     \reimp
@@ -4888,6 +5171,7 @@ public:
         Data() : val(-1) {}
         int val;
         QStringList flagNames;
+        QMap<int,int> flagValues;
     };
 
     typedef QMap<const QtProperty *, Data> PropertyValueMap;
@@ -4906,16 +5190,32 @@ void QtFlagPropertyManagerPrivate::slotBoolChanged(QtProperty *property, bool va
     if (prop == 0)
         return;
 
+
     QListIterator<QtProperty *> itProp(m_propertyToFlags[prop]);
+
+
     int level = 0;
     while (itProp.hasNext()) {
         QtProperty *p = itProp.next();
         if (p == property) {
             int v = m_values[prop].val;
-            if (value) {
-                v |= (1 << level);
-            } else {
-                v &= ~(1 << level);
+
+            if (m_values[prop].flagValues.size() == 0)
+            {
+                if (value) {
+                    v |= (1 << level);
+                } else {
+                    v &= ~(1 << level);
+                }
+            }
+            else
+            {
+                if (value) {
+                    v |= m_values[prop].flagValues[level];
+                } else {
+                    v &= ~ m_values[prop].flagValues[level];
+                }
+
             }
             q_ptr->setValue(prop, v);
             return;
@@ -5048,6 +5348,14 @@ QStringList QtFlagPropertyManager::flagNames(const QtProperty *property) const
     return getData<QStringList>(d_ptr->m_values, &QtFlagPropertyManagerPrivate::Data::flagNames, property, QStringList());
 }
 
+
+QMap<int, int> QtFlagPropertyManager::flagValues(const QtProperty *property) const
+{
+    return getData<QMap<int,int> >(d_ptr->m_values, &QtFlagPropertyManagerPrivate::Data::flagValues, property, QMap<int,int> ());
+}
+
+
+
 /*!
     \reimp
 */
@@ -5064,10 +5372,23 @@ QString QtFlagPropertyManager::valueText(const QtProperty *property) const
     const QChar bar = QLatin1Char('|');
     const QStringList::const_iterator fncend = data.flagNames.constEnd();
     for (QStringList::const_iterator it =  data.flagNames.constBegin(); it != fncend; ++it) {
-        if (data.val & (1 << level)) {
-            if (!str.isEmpty())
-                str += bar;
-            str += *it;
+
+        if (data.flagValues.size() == 0)
+        {
+            if (data.val & (1 << level)) {
+                if (!str.isEmpty())
+                    str += bar;
+                str += *it;
+            }
+        }
+        else
+        {
+            if (data.val & (data.flagValues[level])) {
+                if (!str.isEmpty())
+                    str += bar;
+                str += *it;
+            }
+
         }
 
         level++;
@@ -5099,8 +5420,8 @@ void QtFlagPropertyManager::setValue(QtProperty *property, int val)
     if (data.val == val)
         return;
 
-    if (val > (1 << data.flagNames.count()) - 1)
-        return;
+    //if (val > (1 << data.flagNames.count()) - 1)
+    //    return;
 
     if (val < 0)
         return;
@@ -5110,12 +5431,31 @@ void QtFlagPropertyManager::setValue(QtProperty *property, int val)
     it.value() = data;
 
     QListIterator<QtProperty *> itProp(d_ptr->m_propertyToFlags[property]);
-    int level = 0;
-    while (itProp.hasNext()) {
-        QtProperty *prop = itProp.next();
-        if (prop)
-            d_ptr->m_boolPropertyManager->setValue(prop, val & (1 << level));
-        level++;
+
+    if (data.flagValues.size() == 0)
+    {
+        int level = 0;
+        while (itProp.hasNext()) {
+            QtProperty *prop = itProp.next();
+            if (prop)
+                d_ptr->m_boolPropertyManager->setValue(prop, val & (1 << level));
+            level++;
+        }
+    }
+    else
+    {
+        QMap<int,int>::iterator level = data.flagValues.begin();
+
+        int indx = 0;
+        while (itProp.hasNext()) {
+
+            indx = val & level.value();
+            QtProperty *prop = itProp.next();
+            if (prop)
+                d_ptr->m_boolPropertyManager->setValue(prop, indx);
+            level++;
+        }
+
     }
 
     emit propertyChanged(property);
@@ -5129,6 +5469,19 @@ void QtFlagPropertyManager::setValue(QtProperty *property, int val)
 
     \sa flagNames(), flagNamesChanged()
 */
+
+
+void QtFlagPropertyManager::setFlagValues(QtProperty *property, const QMap<int,int> &flagValues)
+{
+    const QtFlagPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    it.value().flagValues = flagValues;
+
+}
+
+
 void QtFlagPropertyManager::setFlagNames(QtProperty *property, const QStringList &flagNames)
 {
     const QtFlagPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
@@ -6282,7 +6635,24 @@ void QtColorPropertyManager::uninitializeProperty(QtProperty *property)
 
 // QtCursorPropertyManager
 
+// Make sure icons are removed as soon as QApplication is destroyed, otherwise,
+// handles are leaked on X11.
+static void clearCursorDatabase();
+namespace {
+struct CursorDatabase : public QtCursorDatabase
+{
+    CursorDatabase()
+    {
+        qAddPostRoutine(clearCursorDatabase);
+    }
+};
+}
 Q_GLOBAL_STATIC(QtCursorDatabase, cursorDatabase)
+
+static void clearCursorDatabase()
+{
+    cursorDatabase()->clear();
+}
 
 class QtCursorPropertyManagerPrivate
 {
@@ -6416,6 +6786,842 @@ void QtCursorPropertyManager::uninitializeProperty(QtProperty *property)
 {
     d_ptr->m_values.remove(property);
 }
+
+///////////////////////////////////////////////////////////////////
+// JAD
+///////////////////////////////////////////////////////////////////
+// QtBitArrayPropertyManager
+
+class QtBitArrayPropertyManagerPrivate
+{
+    QtBitArrayPropertyManager *q_ptr;
+    Q_DECLARE_PUBLIC(QtBitArrayPropertyManager)
+public:
+
+    void slotBoolChanged(QtProperty *property, bool value);
+    void slotPropertyDestroyed(QtProperty *property);
+
+    typedef QMap<const QtProperty *, QBitArray> PropertyValueMap;
+
+    PropertyValueMap m_values;
+
+    QtBoolPropertyManager* m_boolPropertyManager;
+
+
+
+};
+
+void QtBitArrayPropertyManagerPrivate::slotBoolChanged(QtProperty *property, bool value)
+{
+
+
+
+}
+
+void QtBitArrayPropertyManagerPrivate::slotPropertyDestroyed(QtProperty *property)
+{
+
+}
+
+/*!
+    \class QtBitArrayPropertyManager
+
+    \brief The QtBitArrayPropertyManager provides and manages QColor properties.
+
+    A color property has nested \e red, \e green and \e blue
+    subproperties. The top-level property's value can be retrieved
+    using the value() function, and set using the setValue() slot.
+
+    The subproperties are created by a QtIntPropertyManager object. This
+    manager can be retrieved using the subIntPropertyManager() function.  In
+    order to provide editing widgets for the subproperties in a
+    property browser widget, this manager must be associated with an
+    editor factory.
+
+    In addition, QtBitArrayPropertyManager provides the valueChanged() signal
+    which is emitted whenever a property created by this manager
+    changes.
+
+    \sa QtAbstractPropertyManager, QtAbstractPropertyBrowser, QtIntPropertyManager
+*/
+
+/*!
+    \fn void QtBitArrayPropertyManager::valueChanged(QtProperty *property, const QColor &value)
+
+    This signal is emitted whenever a property created by this manager
+    changes its value, passing a pointer to the \a property and the new
+    \a value as parameters.
+
+    \sa setValue()
+*/
+
+/*!
+    Creates a manager with the given \a parent.
+*/
+QtBitArrayPropertyManager::QtBitArrayPropertyManager(QObject *parent)
+    : QtAbstractPropertyManager(parent)
+{
+    d_ptr = new QtBitArrayPropertyManagerPrivate;
+    d_ptr->q_ptr = this;
+
+    d_ptr->m_boolPropertyManager = new QtBoolPropertyManager(this);
+    connect(d_ptr->m_boolPropertyManager, SIGNAL(valueChanged(QtProperty *, bool)),
+                this, SLOT(slotBoolChanged(QtProperty *, bool)));
+    connect(d_ptr->m_boolPropertyManager, SIGNAL(propertyDestroyed(QtProperty *)),
+                this, SLOT(slotPropertyDestroyed(QtProperty *)));
+
+}
+
+/*!
+    Destroys this manager, and all the properties it has created.
+*/
+QtBitArrayPropertyManager::~QtBitArrayPropertyManager()
+{
+    clear();
+    delete d_ptr;
+}
+
+/*!
+    Returns the manager that produces the nested \e red, \e green and
+    \e blue subproperties.
+
+    In order to provide editing widgets for the subproperties in a
+    property browser widget, this manager must be associated with an
+    editor factory.
+
+    \sa QtAbstractPropertyBrowser::setFactoryForManager()
+*/
+QtBoolPropertyManager *QtBitArrayPropertyManager::subBoolPropertyManager() const
+{
+    return d_ptr->m_boolPropertyManager;
+}
+
+/*!
+    Returns the given \a property's value.
+
+    If the given \a property is not managed by \e this manager, this
+    function returns an invalid color.
+
+    \sa setValue()
+*/
+QBitArray QtBitArrayPropertyManager::value(const QtProperty *property) const
+{
+    const QtBitArrayPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
+    if (it == d_ptr->m_values.constEnd())
+        return QBitArray();
+
+
+
+    return *it;
+}
+
+/*!
+    \reimp
+*/
+
+QString QtBitArrayPropertyManager::valueText(const QtProperty *property) const
+{
+    return QString();
+
+//    const QtBitArrayPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
+//    if (it == d_ptr->m_values.constEnd())
+//        return QString();
+
+//    return QtPropertyBrowserUtils::colorValueText(it.value());
+}
+
+/*!
+    \reimp
+*/
+
+QIcon QtBitArrayPropertyManager::valueIcon(const QtProperty *property) const
+{
+    return QIcon();
+//    Q_FOREACH (QtProperty *p, property->subProperties())
+//    {
+
+
+//    }
+
+//    const QtBoolPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
+//    if (it == d_ptr->m_values.constEnd())
+//        return QIcon();
+
+//    return it.value().val ? d_ptr->m_checkedIcon : d_ptr->m_uncheckedIcon;
+
+
+}
+
+/*!
+    \fn void QtBitArrayPropertyManager::setValue(QtProperty *property, const QColor &value)
+
+    Sets the value of the given \a property to \a value.  Nested
+    properties are updated automatically.
+
+    \sa value(), valueChanged()
+*/
+void QtBitArrayPropertyManager::setValue(QtProperty *property, const QBitArray &val)
+{
+
+
+
+    QtBitArrayPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+
+    if (it != d_ptr->m_values.end())
+    {
+        QBitArray ba = *it;
+        if ( val != ba)
+        {
+//            Q_FOREACH(QtProperty *p,property->subProperties())
+//            {
+//                property->removeSubProperty(p);
+
+//            }
+           *it = val;
+        }
+        else
+            return;
+        for (int i = 0; i < (*it).size(); i++)
+        {
+             QtProperty *rProp = d_ptr->m_boolPropertyManager->addProperty();
+
+
+             rProp->setPropertyName(QString("[%1]").arg(i));
+
+
+             property->addSubProperty(rProp);
+             d_ptr->m_boolPropertyManager->setValue(rProp,val.at(i));
+        }
+    }
+    else return;
+
+    emit propertyChanged(property);
+    emit valueChanged(property, val);
+}
+
+/*!
+    \reimp
+*/
+void QtBitArrayPropertyManager::initializeProperty(QtProperty *property)
+{
+
+    d_ptr->m_values[property] =  QBitArray();
+}
+
+/*!
+    \reimp
+*/
+void QtBitArrayPropertyManager::uninitializeProperty(QtProperty *property)
+{
+
+    const QtBitArrayPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it != d_ptr->m_values.end())
+    {
+
+        Q_FOREACH(QtProperty *p,property->subProperties())
+        {
+            property->removeSubProperty(p);
+        }
+        d_ptr->m_values.remove(property);
+
+    }
+
+}
+//////////////////////////////////////////////////////////////////////////
+
+
+// QtVector2DPropertyManager
+
+class QtVector2DPropertyManagerPrivate
+{
+    QtVector2DPropertyManager *q_ptr;
+    Q_DECLARE_PUBLIC(QtVector2DPropertyManager)
+public:
+
+    struct Data
+    {
+        Data() : decimals(2) {}
+        QVector2D val;
+        int decimals;
+    };
+
+    void slotDoubleChanged(QtProperty *property, double value);
+    void slotPropertyDestroyed(QtProperty *property);
+
+    typedef QMap<const QtProperty *, Data> PropertyValueMap;
+    PropertyValueMap m_values;
+
+    QtDoublePropertyManager *m_doublePropertyManager;
+
+    QMap<const QtProperty *, QtProperty *> m_propertyToX;
+    QMap<const QtProperty *, QtProperty *> m_propertyToY;
+
+    QMap<const QtProperty *, QtProperty *> m_xToProperty;
+    QMap<const QtProperty *, QtProperty *> m_yToProperty;
+};
+
+void QtVector2DPropertyManagerPrivate::slotDoubleChanged(QtProperty *property, double value)
+{
+    if (QtProperty *prop = m_xToProperty.value(property, 0)) {
+        QVector2D p = m_values[prop].val;
+        p.setX(value);
+        q_ptr->setValue(prop, p);
+    } else if (QtProperty *prop = m_yToProperty.value(property, 0)) {
+        QVector2D p = m_values[prop].val;
+        p.setY(value);
+        q_ptr->setValue(prop, p);
+    }
+}
+
+void QtVector2DPropertyManagerPrivate::slotPropertyDestroyed(QtProperty *property)
+{
+    if (QtProperty *pointProp  = m_xToProperty.value(property, 0)) {
+        m_propertyToX[pointProp] = 0;
+        m_xToProperty.remove(property);
+    } else if (QtProperty *pointProp = m_yToProperty.value(property, 0)) {
+        m_propertyToY[pointProp] = 0;
+        m_yToProperty.remove(property);
+    }
+}
+
+/*! \class QtVector2DPropertyManager
+
+    \brief The QtVector2DPropertyManager provides and manages QVector2D properties.
+
+    A point property has nested \e x and \e y subproperties. The
+    top-level property's value can be retrieved using the value()
+    function, and set using the setValue() slot.
+
+    The subproperties are created by a QtDoublePropertyManager object. This
+    manager can be retrieved using the subDoublePropertyManager() function. In
+    order to provide editing widgets for the subproperties in a
+    property browser widget, this manager must be associated with an
+    editor factory.
+
+    In addition, QtVector2DPropertyManager provides the valueChanged() signal which
+    is emitted whenever a property created by this manager changes.
+
+    \sa QtAbstractPropertyManager, QtDoublePropertyManager, QtPointPropertyManager
+*/
+
+/*!
+    \fn void QtVector2DPropertyManager::valueChanged(QtProperty *property, const QPointF &value)
+
+    This signal is emitted whenever a property created by this manager
+    changes its value, passing a pointer to the \a property and the
+    new \a value as parameters.
+
+    \sa setValue()
+*/
+
+/*!
+    \fn void QtVector2DPropertyManager::decimalsChanged(QtProperty *property, int prec)
+
+    This signal is emitted whenever a property created by this manager
+    changes its precision of value, passing a pointer to the
+    \a property and the new \a prec value
+
+    \sa setDecimals()
+*/
+
+/*!
+    Creates a manager with the given \a parent.
+*/
+QtVector2DPropertyManager::QtVector2DPropertyManager(QObject *parent)
+    : QtAbstractPropertyManager(parent)
+{
+    d_ptr = new QtVector2DPropertyManagerPrivate;
+    d_ptr->q_ptr = this;
+
+    d_ptr->m_doublePropertyManager = new QtDoublePropertyManager(this);
+    connect(d_ptr->m_doublePropertyManager, SIGNAL(valueChanged(QtProperty *, double)),
+                this, SLOT(slotDoubleChanged(QtProperty *, double)));
+    connect(d_ptr->m_doublePropertyManager, SIGNAL(propertyDestroyed(QtProperty *)),
+                this, SLOT(slotPropertyDestroyed(QtProperty *)));
+}
+
+/*!
+    Destroys this manager, and all the properties it has created.
+*/
+QtVector2DPropertyManager::~QtVector2DPropertyManager()
+{
+    clear();
+    delete d_ptr;
+}
+
+/*!
+    Returns the manager that creates the nested \e x and \e y
+    subproperties.
+
+    In order to provide editing widgets for the subproperties in a
+    property browser widget, this manager must be associated with an
+    editor factory.
+
+    \sa QtAbstractPropertyBrowser::setFactoryForManager()
+*/
+QtDoublePropertyManager *QtVector2DPropertyManager::subDoublePropertyManager() const
+{
+    return d_ptr->m_doublePropertyManager;
+}
+
+/*!
+    Returns the given \a property's value.
+
+    If the given \a property is not managed by this manager, this
+    function returns a point with coordinates (0, 0).
+
+    \sa setValue()
+*/
+QVector2D QtVector2DPropertyManager::value(const QtProperty *property) const
+{
+    return getValue<QVector2D>(d_ptr->m_values, property);
+}
+
+/*!
+    Returns the given \a property's precision, in decimals.
+
+    \sa setDecimals()
+*/
+int QtVector2DPropertyManager::decimals(const QtProperty *property) const
+{
+    return getData<int>(d_ptr->m_values, &QtVector2DPropertyManagerPrivate::Data::decimals, property, 0);
+}
+
+/*!
+    \reimp
+*/
+QString QtVector2DPropertyManager::valueText(const QtProperty *property) const
+{
+    const QtVector2DPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
+    if (it == d_ptr->m_values.constEnd())
+        return QString();
+    const QVector2D v = it.value().val;
+    const int dec =  it.value().decimals;
+    return QString(tr("(%1, %2)").arg(QString::number(v.x(), 'f', dec))
+                                 .arg(QString::number(v.y(), 'f', dec)));
+}
+
+/*!
+    \fn void QtVector2DPropertyManager::setValue(QtProperty *property, const QPointF &value)
+
+    Sets the value of the given \a property to \a value. Nested
+    properties are updated automatically.
+
+    \sa value(), valueChanged()
+*/
+void QtVector2DPropertyManager::setValue(QtProperty *property, const QVector2D &val)
+{
+    const QtVector2DPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    if (it.value().val == val)
+        return;
+
+    it.value().val = val;
+    d_ptr->m_doublePropertyManager->setValue(d_ptr->m_propertyToX[property], val.x());
+    d_ptr->m_doublePropertyManager->setValue(d_ptr->m_propertyToY[property], val.y());
+
+    emit propertyChanged(property);
+    emit valueChanged(property, val);
+}
+
+/*!
+    \fn void QtVector2DPropertyManager::setDecimals(QtProperty *property, int prec)
+
+    Sets the precision of the given \a property to \a prec.
+
+    The valid decimal range is 0-13. The default is 2.
+
+    \sa decimals()
+*/
+void QtVector2DPropertyManager::setDecimals(QtProperty *property, int prec)
+{
+    const QtVector2DPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    QtVector2DPropertyManagerPrivate::Data data = it.value();
+
+    if (prec > 13)
+        prec = 13;
+    else if (prec < 0)
+        prec = 0;
+
+    if (data.decimals == prec)
+        return;
+
+    data.decimals = prec;
+    d_ptr->m_doublePropertyManager->setDecimals(d_ptr->m_propertyToX[property], prec);
+    d_ptr->m_doublePropertyManager->setDecimals(d_ptr->m_propertyToY[property], prec);
+
+    it.value() = data;
+
+    emit decimalsChanged(property, data.decimals);
+}
+
+/*!
+    \reimp
+*/
+void QtVector2DPropertyManager::initializeProperty(QtProperty *property)
+{
+    d_ptr->m_values[property] = QtVector2DPropertyManagerPrivate::Data();
+
+    QtProperty *xProp = d_ptr->m_doublePropertyManager->addProperty();
+    xProp->setPropertyName(tr("X"));
+    d_ptr->m_doublePropertyManager->setDecimals(xProp, decimals(property));
+    d_ptr->m_doublePropertyManager->setValue(xProp, 0);
+    d_ptr->m_propertyToX[property] = xProp;
+    d_ptr->m_xToProperty[xProp] = property;
+    property->addSubProperty(xProp);
+
+    QtProperty *yProp = d_ptr->m_doublePropertyManager->addProperty();
+    yProp->setPropertyName(tr("Y"));
+    d_ptr->m_doublePropertyManager->setDecimals(yProp, decimals(property));
+    d_ptr->m_doublePropertyManager->setValue(yProp, 0);
+    d_ptr->m_propertyToY[property] = yProp;
+    d_ptr->m_yToProperty[yProp] = property;
+    property->addSubProperty(yProp);
+}
+
+/*!
+    \reimp
+*/
+void QtVector2DPropertyManager::uninitializeProperty(QtProperty *property)
+{
+    QtProperty *xProp = d_ptr->m_propertyToX[property];
+    if (xProp) {
+        d_ptr->m_xToProperty.remove(xProp);
+        delete xProp;
+    }
+    d_ptr->m_propertyToX.remove(property);
+
+    QtProperty *yProp = d_ptr->m_propertyToY[property];
+    if (yProp) {
+        d_ptr->m_yToProperty.remove(yProp);
+        delete yProp;
+    }
+    d_ptr->m_propertyToY.remove(property);
+
+    d_ptr->m_values.remove(property);
+}
+
+
+//////////////////////////////////////////////////////////////////////////
+
+
+// QtVector3DPropertyManager
+
+class QtVector3DPropertyManagerPrivate
+{
+    QtVector3DPropertyManager *q_ptr;
+    Q_DECLARE_PUBLIC(QtVector3DPropertyManager)
+public:
+
+    struct Data
+    {
+        Data() : decimals(2) {}
+        QVector3D val;
+        int decimals;
+    };
+
+    void slotDoubleChanged(QtProperty *property, double value);
+    void slotPropertyDestroyed(QtProperty *property);
+
+    typedef QMap<const QtProperty *, Data> PropertyValueMap;
+    PropertyValueMap m_values;
+
+    QtDoublePropertyManager *m_doublePropertyManager;
+
+    QMap<const QtProperty *, QtProperty *> m_propertyToX;
+    QMap<const QtProperty *, QtProperty *> m_propertyToY;
+    QMap<const QtProperty *, QtProperty *> m_propertyToZ;
+
+    QMap<const QtProperty *, QtProperty *> m_xToProperty;
+    QMap<const QtProperty *, QtProperty *> m_yToProperty;
+    QMap<const QtProperty *, QtProperty *> m_zToProperty;
+};
+
+void QtVector3DPropertyManagerPrivate::slotDoubleChanged(QtProperty *property, double value)
+{
+    if (QtProperty *prop = m_xToProperty.value(property, 0)) {
+        QVector3D p = m_values[prop].val;
+        p.setX(value);
+        q_ptr->setValue(prop, p);
+    } else if (QtProperty *prop = m_yToProperty.value(property, 0)) {
+        QVector3D p = m_values[prop].val;
+        p.setY(value);
+        q_ptr->setValue(prop, p);
+    } else if (QtProperty *prop = m_zToProperty.value(property, 0)) {
+    QVector3D p = m_values[prop].val;
+    p.setZ(value);
+    q_ptr->setValue(prop, p);
+}
+}
+
+void QtVector3DPropertyManagerPrivate::slotPropertyDestroyed(QtProperty *property)
+{
+    if (QtProperty *pointProp  = m_xToProperty.value(property, 0)) {
+        m_propertyToX[pointProp] = 0;
+        m_xToProperty.remove(property);
+    } else if (QtProperty *pointProp = m_yToProperty.value(property, 0)) {
+        m_propertyToY[pointProp] = 0;
+        m_yToProperty.remove(property);
+    }
+    else if (QtProperty *pointProp = m_zToProperty.value(property, 0)) {
+            m_propertyToZ[pointProp] = 0;
+            m_zToProperty.remove(property);
+        }
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////
+
+/*! \class QtVector3DPropertyManager
+
+    \brief The QtVector3DPropertyManager provides and manages QVector3D properties.
+
+    A point property has nested \e x and \e y subproperties. The
+    top-level property's value can be retrieved using the value()
+    function, and set using the setValue() slot.
+
+    The subproperties are created by a QtDoublePropertyManager object. This
+    manager can be retrieved using the subDoublePropertyManager() function. In
+    order to provide editing widgets for the subproperties in a
+    property browser widget, this manager must be associated with an
+    editor factory.
+
+    In addition, QtVector3DPropertyManager provides the valueChanged() signal which
+    is emitted whenever a property created by this manager changes.
+
+    \sa QtAbstractPropertyManager, QtDoublePropertyManager, QtPointPropertyManager
+*/
+
+/*!
+    \fn void QtVector3DPropertyManager::valueChanged(QtProperty *property, const QPointF &value)
+
+    This signal is emitted whenever a property created by this manager
+    changes its value, passing a pointer to the \a property and the
+    new \a value as parameters.
+
+    \sa setValue()
+*/
+
+/*!
+    \fn void QtVector3DPropertyManager::decimalsChanged(QtProperty *property, int prec)
+
+    This signal is emitted whenever a property created by this manager
+    changes its precision of value, passing a pointer to the
+    \a property and the new \a prec value
+
+    \sa setDecimals()
+*/
+
+/*!
+    Creates a manager with the given \a parent.
+*/
+QtVector3DPropertyManager::QtVector3DPropertyManager(QObject *parent)
+    : QtAbstractPropertyManager(parent)
+{
+    d_ptr = new QtVector3DPropertyManagerPrivate;
+    d_ptr->q_ptr = this;
+
+    d_ptr->m_doublePropertyManager = new QtDoublePropertyManager(this);
+    connect(d_ptr->m_doublePropertyManager, SIGNAL(valueChanged(QtProperty *, double)),
+                this, SLOT(slotDoubleChanged(QtProperty *, double)));
+    connect(d_ptr->m_doublePropertyManager, SIGNAL(propertyDestroyed(QtProperty *)),
+                this, SLOT(slotPropertyDestroyed(QtProperty *)));
+}
+
+/*!
+    Destroys this manager, and all the properties it has created.
+*/
+QtVector3DPropertyManager::~QtVector3DPropertyManager()
+{
+    clear();
+    delete d_ptr;
+}
+
+/*!
+    Returns the manager that creates the nested \e x and \e y
+    subproperties.
+
+    In order to provide editing widgets for the subproperties in a
+    property browser widget, this manager must be associated with an
+    editor factory.
+
+    \sa QtAbstractPropertyBrowser::setFactoryForManager()
+*/
+QtDoublePropertyManager *QtVector3DPropertyManager::subDoublePropertyManager() const
+{
+    return d_ptr->m_doublePropertyManager;
+}
+
+/*!
+    Returns the given \a property's value.
+
+    If the given \a property is not managed by this manager, this
+    function returns a point with coordinates (0, 0).
+
+    \sa setValue()
+*/
+QVector3D QtVector3DPropertyManager::value(const QtProperty *property) const
+{
+    return getValue<QVector3D>(d_ptr->m_values, property);
+}
+
+/*!
+    Returns the given \a property's precision, in decimals.
+
+    \sa setDecimals()
+*/
+int QtVector3DPropertyManager::decimals(const QtProperty *property) const
+{
+    return getData<int>(d_ptr->m_values, &QtVector3DPropertyManagerPrivate::Data::decimals, property, 0);
+}
+
+/*!
+    \reimp
+*/
+QString QtVector3DPropertyManager::valueText(const QtProperty *property) const
+{
+    const QtVector3DPropertyManagerPrivate::PropertyValueMap::const_iterator it = d_ptr->m_values.constFind(property);
+    if (it == d_ptr->m_values.constEnd())
+        return QString();
+    const QVector3D v = it.value().val;
+    const int dec =  it.value().decimals;
+    return QString(tr("(%1, %2, %3)").arg(QString::number(v.x(), 'f', dec))
+                                 .arg(QString::number(v.y(), 'f', dec))
+                                 .arg(QString::number(v.z(), 'f', dec)));
+}
+
+/*!
+    \fn void QtVector3DPropertyManager::setValue(QtProperty *property, const QPointF &value)
+
+    Sets the value of the given \a property to \a value. Nested
+    properties are updated automatically.
+
+    \sa value(), valueChanged()
+*/
+void QtVector3DPropertyManager::setValue(QtProperty *property, const QVector3D &val)
+{
+    const QtVector3DPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    if (it.value().val == val)
+        return;
+
+    it.value().val = val;
+    d_ptr->m_doublePropertyManager->setValue(d_ptr->m_propertyToX[property], val.x());
+    d_ptr->m_doublePropertyManager->setValue(d_ptr->m_propertyToY[property], val.y());
+    d_ptr->m_doublePropertyManager->setValue(d_ptr->m_propertyToZ[property], val.z());
+
+    emit propertyChanged(property);
+    emit valueChanged(property, val);
+}
+
+/*!
+    \fn void QtVector3DPropertyManager::setDecimals(QtProperty *property, int prec)
+
+    Sets the precision of the given \a property to \a prec.
+
+    The valid decimal range is 0-13. The default is 2.
+
+    \sa decimals()
+*/
+void QtVector3DPropertyManager::setDecimals(QtProperty *property, int prec)
+{
+    const QtVector3DPropertyManagerPrivate::PropertyValueMap::iterator it = d_ptr->m_values.find(property);
+    if (it == d_ptr->m_values.end())
+        return;
+
+    QtVector3DPropertyManagerPrivate::Data data = it.value();
+
+    if (prec > 13)
+        prec = 13;
+    else if (prec < 0)
+        prec = 0;
+
+    if (data.decimals == prec)
+        return;
+
+    data.decimals = prec;
+    d_ptr->m_doublePropertyManager->setDecimals(d_ptr->m_propertyToX[property], prec);
+    d_ptr->m_doublePropertyManager->setDecimals(d_ptr->m_propertyToY[property], prec);
+    d_ptr->m_doublePropertyManager->setDecimals(d_ptr->m_propertyToZ[property], prec);
+    it.value() = data;
+
+    emit decimalsChanged(property, data.decimals);
+}
+
+/*!
+    \reimp
+*/
+void QtVector3DPropertyManager::initializeProperty(QtProperty *property)
+{
+    d_ptr->m_values[property] = QtVector3DPropertyManagerPrivate::Data();
+
+    QtProperty *xProp = d_ptr->m_doublePropertyManager->addProperty();
+    xProp->setPropertyName(tr("[0]"));
+    d_ptr->m_doublePropertyManager->setDecimals(xProp, decimals(property));
+    d_ptr->m_doublePropertyManager->setValue(xProp, 0);
+    d_ptr->m_propertyToX[property] = xProp;
+    d_ptr->m_xToProperty[xProp] = property;
+    property->addSubProperty(xProp);
+
+    QtProperty *yProp = d_ptr->m_doublePropertyManager->addProperty();
+    yProp->setPropertyName(tr("[1]"));
+    d_ptr->m_doublePropertyManager->setDecimals(yProp, decimals(property));
+    d_ptr->m_doublePropertyManager->setValue(yProp, 0);
+    d_ptr->m_propertyToY[property] = yProp;
+    d_ptr->m_yToProperty[yProp] = property;
+    property->addSubProperty(yProp);
+
+    QtProperty *zProp = d_ptr->m_doublePropertyManager->addProperty();
+    zProp->setPropertyName(tr("[2]"));
+    d_ptr->m_doublePropertyManager->setDecimals(zProp, decimals(property));
+    d_ptr->m_doublePropertyManager->setValue(zProp, 0);
+    d_ptr->m_propertyToZ[property] = zProp;
+    d_ptr->m_zToProperty[zProp] = property;
+    property->addSubProperty(zProp);
+}
+
+/*!
+    \reimp
+*/
+void QtVector3DPropertyManager::uninitializeProperty(QtProperty *property)
+{
+    QtProperty *xProp = d_ptr->m_propertyToX[property];
+    if (xProp) {
+        d_ptr->m_xToProperty.remove(xProp);
+        delete xProp;
+    }
+    d_ptr->m_propertyToX.remove(property);
+
+    QtProperty *yProp = d_ptr->m_propertyToY[property];
+    if (yProp) {
+        d_ptr->m_yToProperty.remove(yProp);
+        delete yProp;
+    }
+    d_ptr->m_propertyToY.remove(property);
+
+    QtProperty *zProp = d_ptr->m_propertyToZ[property];
+    if (zProp) {
+        d_ptr->m_yToProperty.remove(zProp);
+        delete zProp;
+    }
+    d_ptr->m_propertyToZ.remove(property);
+
+    d_ptr->m_values.remove(property);
+}
+
+
+
+
+
+
 
 #if QT_VERSION >= 0x040400
 QT_END_NAMESPACE

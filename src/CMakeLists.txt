@@ -14,6 +14,7 @@ set(_SRCS
   qtpropertymanager.cpp
   qttreepropertybrowser.cpp
   qtvariantproperty.cpp
+  qtmetaobjectpropertybrowser.cpp
   )
 
 file(GLOB _IMPL_HDRS *.h)
